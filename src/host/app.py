@@ -55,6 +55,13 @@ def index():
         if alarm_manager:
             alarm_manager.set_alarm(alarm)
             msg = f"Alarm set for {alarm}"
+            # Update LCD immediately so display doesn't wait for the next minute tick
+            try:
+                if lcd:
+                    display_now = TimeDisplay(current_time=datetime.now(), alarm=alarm)
+                    lcd.write(display_now.get_time_line(), display_now.get_alarm_line())
+            except Exception as e:
+                print(f"[HOST APP] Failed to update LCD after setting alarm: {e}")
         else:
             msg = f"Alarm created (server not running): {alarm}"
 
