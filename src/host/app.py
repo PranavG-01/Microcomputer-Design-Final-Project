@@ -98,8 +98,8 @@ def main():
     time.sleep(2)
 
     # Set the alarm for 2:25 PM
-    alarm = Alarm(hours=2, minutes=25, is_pm=True)
-    alarm_manager.set_alarm(alarm)
+    # alarm = Alarm(hours=2, minutes=25, is_pm=True)
+    # alarm_manager.set_alarm(alarm)
 
     # Start the alarm scheduler thread
     scheduler_thread = threading.Thread(target=alarm_scheduler, daemon=True)
