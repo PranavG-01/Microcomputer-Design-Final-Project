@@ -20,7 +20,7 @@ class TimeDisplay:
     def get_alarm_line(self) -> str:
         """Get formatted alarm info (e.g., 'Alarm: 7:30 AM' or 'No Alarm')"""
         if self.alarm:
-            return f"Alarm: {self.alarm}"
+            return f"Alarm Set: {self.alarm}"
         else:
             return "No Alarm"
     
