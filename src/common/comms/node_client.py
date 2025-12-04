@@ -25,14 +25,14 @@ class AlarmNode:
             handlers=[self._on_service_state_change]
         )
 
-    def _on_service_state_change(self, zc, service_type, name, state_change):
-        if state_change is ServiceStateChange.Added:
-            info = zc.get_service_info(service_type, name)
+    def _on_service_state_change(self, zeroconf, service_type, name, state_change):
+        if state_change.is_added():
+            info = zeroconf.get_service_info(service_type, name)
             if info:
                 ip = ".".join(map(str, info.addresses[0]))
                 print(f"[NODE] Host found at {ip}:{info.port}")
-                self.host_info = info
                 self.connect_to_host(ip, info.port)
+
 
     # ------------------------------
     # TCP Client Connection
