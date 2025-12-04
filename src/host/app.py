@@ -3,6 +3,7 @@ from common.comms.host_server import AlarmHost
 from host.alarm_manager import AlarmManager
 from common.comms.protocol import Alarm, AlarmEvent, EventType
 from common.io.lcd import LCD
+from common.io.time_display import TimeDisplay
 from common.io.buzzer import BuzzerController
 import time
 import threading
@@ -32,11 +33,13 @@ def update_display():
             current_time = datetime.datetime.now()
             alarm = alarm_manager.get_current_alarm()
             
-            if lcd:
-                lcd.lcd_write(current_time, alarm)
+            # Create a TimeDisplay object with current time and alarm
+            display = TimeDisplay(current_time=current_time, alarm=alarm)
             
-            alarm_str = f"{alarm}" if alarm else "No Alarm"
-            print(f"[HOST] Display updated: {current_time.strftime('%I:%M %p')}, {alarm_str}")
+            if lcd:
+                lcd.write(display.get_time_line(), display.get_alarm_line())
+            
+            print(f"[HOST] Display updated: {display}")
             
             # Update every minute (60 seconds)
             time.sleep(60)

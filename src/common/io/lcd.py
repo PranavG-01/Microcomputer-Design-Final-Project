@@ -1,7 +1,7 @@
 from RPLCD.gpio import CharLCD
 import RPi.GPIO as GPIO
 import time
-from common.comms.protocol import Alarm
+
 
 class LCD:
     def __init__(self):
@@ -10,43 +10,29 @@ class LCD:
             numbering_mode=GPIO.BCM, cols=16, rows=2, dotsize=8
         )
 
-    def lcd_write(self, current_time, alarm=None):
+    def write(self, line1: str, line2: str = ""):
         """
-        Write to LCD display.
+        Write two lines to the LCD display.
         
         Args:
-            current_time: datetime object for current time
-            alarm: Alarm object or None
-        
-        Displays format:
-        Line 1: Current time in 12-hour format (e.g., "2:30 PM")
-        Line 2: Alarm time if set (e.g., "Alarm: 7:30 AM"), else "No Alarm"
+            line1: String for line 1 (max 16 chars)
+            line2: String for line 2 (max 16 chars), optional
         """
-        # Format current time in 12-hour format
-        time_12hr = current_time.strftime("%I:%M %p")
-        # Remove leading zero from hour (strftime %I gives 01-12)
-        if time_12hr[0] == '0':
-            time_12hr = time_12hr[1:]
-        
-        # Format alarm info
-        if alarm:
-            alarm_str = f"Alarm: {alarm}"
-        else:
-            alarm_str = "No Alarm"
-        
-        # Ensure strings fit in 16 character width
-        time_12hr = time_12hr[:16]
-        alarm_str = alarm_str[:16]
+        # Truncate to fit 16 character width
+        line1 = str(line1)[:16]
+        line2 = str(line2)[:16]
         
         self.lcd.cursor_pos = (0, 0)
-        self.lcd.write_string(time_12hr)
+        self.lcd.write_string(line1)
         self.lcd.cursor_pos = (1, 0)
-        self.lcd.write_string(alarm_str)
+        self.lcd.write_string(line2)
 
-    def lcd_clearScreen(self):
+    def clear(self):
         self.lcd.clear()
 
     def close(self):
         self.lcd.clear()
+        self.lcd.close()
+        GPIO.cleanup()
         self.lcd.close()
         GPIO.cleanup()
