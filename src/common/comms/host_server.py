@@ -2,7 +2,7 @@
 import socket
 import threading
 from zeroconf import Zeroconf, ServiceInfo
-from alarm_packet import AlarmEvent, EventType
+from common.comms.protocol import AlarmEvent
 
 
 class AlarmHost:

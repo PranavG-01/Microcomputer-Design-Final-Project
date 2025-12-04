@@ -1,6 +1,6 @@
 from flask import Flask, send_from_directory
-from common.comms.host_server import AlarmHost
-from common.comms.protocol import AlarmEvent, EventType
+from common.comms.host_server import AlarmHost, AlarmEvent
+from common.comms.protocol import EventType
 
 app = Flask(__name__)
 host = AlarmHost()
