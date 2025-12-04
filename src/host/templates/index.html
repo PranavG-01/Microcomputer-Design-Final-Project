@@ -1,3 +1,29 @@
+<!DOCTYPE html>
 <html>
-    <p1>This is a test</p1>
+
+<head>
+    <title>Flask App</title>
+</head>
+
+<body>
+    <h2>Welcome to your Alarm Clock</h2>
+    <p>Please enter your desired time to wake up</p>
+
+    <form method="post" action="/">
+        {{form.csrf_token}}
+        <p>
+            {{form.time.label}}<br>
+            {{ form.time()}}
+        </p>
+        <p><input type="submit" value="Submit"></p>
+    </form>
+    {% if message %}
+    <p><strong>{{ message }}</strong></p>
+    {% endif %}
+
+    {% if current_alarm %}
+    <p>Current alarm: {{ current_alarm }}</p>
+    {% endif %}
+</body>
+
 </html>

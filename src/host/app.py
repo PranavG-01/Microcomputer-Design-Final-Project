@@ -1,4 +1,3 @@
-from flask import Flask, send_from_directory
 from common.comms.host_server import AlarmHost
 from host.alarm_manager import AlarmManager
 from common.comms.protocol import Alarm, AlarmEvent, EventType
@@ -6,20 +5,61 @@ from common.io.lcd import LCD
 from common.io.time_display import TimeDisplay
 from common.io.buzzer import BuzzerController
 from common.io.button import SnoozeButton
+
+from flask import Flask, render_template
+from flask_wtf import FlaskForm
+from wtforms import StringField, SubmitField
+from wtforms.validators import InputRequired
+from wtforms_components import TimeField
+from datetime import datetime
+
 import time
 import threading
-import datetime
 
-app = Flask(__name__)
 host = None
 alarm_manager = None
 lcd = None
 buzzer = None
 button = None
 
-@app.route("/")
-def home():
-    return "Test"
+app = Flask(__name__)
+app.config['SECRET_KEY'] = "secretkey"
+
+class AlarmTime(FlaskForm):
+    time = TimeField('Time', validators = [InputRequired()])
+    submit = SubmitField("Set Alarm")
+
+@app.route("/", methods = ["GET", "POST"])
+def index():
+    form = AlarmTime()
+    if form.validate_on_submit():
+        t = form.time.data
+        # Convert the submitted time (a datetime.time) to our Alarm (12-hour format)
+        hour24 = t.hour
+        minute = t.minute
+        # Convert 24-hour to 12-hour + is_pm flag
+        if hour24 == 0:
+            hour12 = 12
+            is_pm = False
+        elif 1 <= hour24 < 12:
+            hour12 = hour24
+            is_pm = False
+        elif hour24 == 12:
+            hour12 = 12
+            is_pm = True
+        else:
+            hour12 = hour24 - 12
+            is_pm = True
+
+        alarm = Alarm(hours=hour12, minutes=minute, is_pm=is_pm)
+        if alarm_manager:
+            alarm_manager.set_alarm(alarm)
+            msg = f"Alarm set for {alarm}"
+        else:
+            msg = f"Alarm created (server not running): {alarm}"
+
+        return render_template("index.html", form=form, message=msg, current_alarm=alarm)
+    return render_template("index.html", form = form)
 
 
 def handle_event(event: AlarmEvent, addr):
