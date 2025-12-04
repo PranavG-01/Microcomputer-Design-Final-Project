@@ -1,20 +1,28 @@
 # alarm_host.py
 import socket
 import threading
+import time
 from zeroconf import Zeroconf, ServiceInfo
-from common.comms.protocol import AlarmEvent
+from common.comms.protocol import AlarmEvent, EventType, Alarm
 
 
 class AlarmHost:
     SERVICE_TYPE = "_alarmhost._tcp.local."
     SERVICE_NAME = "AlarmHostService._alarmhost._tcp.local."
+    HEARTBEAT_TIMEOUT = 60  # Remove node if no heartbeat for 60 seconds
 
     def __init__(self, port=5001):
         self.port = port
         self.zeroconf = Zeroconf()
         self.service_info = None
-        self.clients = []      # (conn, addr)
+        self.clients = {}      # {addr: {"conn": conn, "last_heartbeat": timestamp}}
         self.running = False
+        self.lock = threading.Lock()
+        
+        # Alarm state management
+        self.current_alarm = None  # Single Alarm object scheduled
+        self.alarm_active = False  # Is an alarm currently triggered?
+        self.snooze_responses = set()  # Addresses that have sent snooze
 
     # ------------------------------
     # Zeroconf Service Announce
@@ -43,18 +51,26 @@ class AlarmHost:
         print(f"[HOST] TCP server listening on port {self.port}")
 
         threading.Thread(target=self._accept_loop, daemon=True).start()
+        threading.Thread(target=self._heartbeat_monitor, daemon=True).start()
 
     def _accept_loop(self):
         while self.running:
-            conn, addr = self.sock.accept()
-            print(f"[HOST] Node connected from {addr}")
-            self.clients.append((conn, addr))
+            try:
+                conn, addr = self.sock.accept()
+                print(f"[HOST] Node connected from {addr}")
+                with self.lock:
+                    self.clients[addr] = {
+                        "conn": conn,
+                        "last_heartbeat": time.time()
+                    }
 
-            threading.Thread(
-                target=self._client_recv_loop, 
-                args=(conn, addr),
-                daemon=True
-            ).start()
+                threading.Thread(
+                    target=self._client_recv_loop, 
+                    args=(conn, addr),
+                    daemon=True
+                ).start()
+            except:
+                pass
 
     def _client_recv_loop(self, conn, addr):
         buffer = ""
@@ -69,24 +85,105 @@ class AlarmHost:
                 while "\n" in buffer:
                     packet, buffer = buffer.split("\n", 1)
                     event = AlarmEvent.from_json(packet)
-                    print(f"[HOST] Received from {addr}: {event}")
+                    print(f"[HOST] Received from {addr}: {event.type.name}")
+                    
+                    # Update heartbeat timestamp if it's a heartbeat
+                    if event.type == EventType.HEARTBEAT:
+                        with self.lock:
+                            if addr in self.clients:
+                                self.clients[addr]["last_heartbeat"] = time.time()
+                    
+                    # Handle other event types (alarms, etc.)
+                    self._handle_event(event, addr)
             except:
                 break
 
         print(f"[HOST] Node disconnected {addr}")
         conn.close()
+        with self.lock:
+            if addr in self.clients:
+                del self.clients[addr]
+
+    def _heartbeat_monitor(self):
+        """Monitor heartbeats and remove nodes that have timed out"""
+        while self.running:
+            time.sleep(10)  # Check every 10 seconds
+            current_time = time.time()
+            
+            with self.lock:
+                dead_nodes = [
+                    addr for addr, info in self.clients.items()
+                    if current_time - info["last_heartbeat"] > self.HEARTBEAT_TIMEOUT
+                ]
+                
+                for addr in dead_nodes:
+                    print(f"[HOST] Node {addr} timed out (no heartbeat). Removing...")
+                    try:
+                        self.clients[addr]["conn"].close()
+                    except:
+                        pass
+                    del self.clients[addr]
+
+    def _handle_event(self, event: AlarmEvent, addr):
+        """Handle received events"""
+        if event.type == EventType.SNOOZE_PRESSED:
+            print(f"[HOST] Snooze pressed by {addr}")
+            with self.lock:
+                self.snooze_responses.add(addr)
+                # Check if all nodes have sent snooze
+                if len(self.snooze_responses) == len(self.clients):
+                    print(f"[HOST] All nodes have snoozed. Alarm cleared.")
+                    self._clear_alarm()
+
+    # ------------------------------
+    # Alarm Management
+    # ------------------------------
+    def set_alarm(self, alarm: Alarm):
+        """Set the alarm to be scheduled"""
+        with self.lock:
+            self.current_alarm = alarm
+        print(f"[HOST] Alarm scheduled for {alarm}")
+
+    def trigger_alarm(self, alarm: Alarm):
+        """Trigger an alarm and broadcast to all nodes"""
+        with self.lock:
+            if self.alarm_active:
+                print("[HOST] An alarm is already active, ignoring new trigger")
+                return
+            
+            self.alarm_active = True
+            self.snooze_responses.clear()
+        
+        print(f"[HOST] ALARM TRIGGERED for {alarm.hours}:{alarm.minutes:02d}")
+        event = AlarmEvent(
+            EventType.ALARM_TRIGGERED,
+            {"alarm": alarm.to_dict()},
+            expires_at=alarm.get_next_trigger_time()
+        )
+        self.broadcast(event)
+
+    def _clear_alarm(self):
+        """Clear the active alarm"""
+        with self.lock:
+            self.alarm_active = False
+            self.snooze_responses.clear()
+        
+        print("[HOST] Alarm cleared, resetting for next scheduled alarm")
+        event = AlarmEvent(EventType.ALARM_CLEARED, {"reason": "all nodes snoozed"})
+        self.broadcast(event)
 
     # ------------------------------
     # Sending events
     # ------------------------------
     def broadcast(self, event: AlarmEvent):
         msg = event.to_json() + "\n"
-        print(f"[HOST] Broadcasting: {event}")
-        for conn, _ in self.clients:
-            try:
-                conn.sendall(msg.encode())
-            except:
-                pass
+        print(f"[HOST] Broadcasting: {event.type.name}")
+        with self.lock:
+            for addr, info in self.clients.items():
+                try:
+                    info["conn"].sendall(msg.encode())
+                except:
+                    pass
 
     # ------------------------------
     # Control
@@ -101,6 +198,13 @@ class AlarmHost:
         self.running = False
         self.zeroconf.unregister_service(self.service_info)
         self.zeroconf.close()
-        for conn, _ in self.clients:
-            conn.close()
-        self.sock.close()
+        with self.lock:
+            for addr, info in self.clients.items():
+                try:
+                    info["conn"].close()
+                except:
+                    pass
+        try:
+            self.sock.close()
+        except:
+            pass

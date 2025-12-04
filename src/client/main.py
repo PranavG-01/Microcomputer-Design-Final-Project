@@ -1,5 +1,5 @@
 from common.comms.node_client import AlarmNode
-from common.comms.protocol import AlarmEvent, EventType
+from common.comms.protocol import AlarmEvent, EventType, Alarm
 import time
 
 def main():
@@ -20,9 +20,9 @@ def main():
 
     try:
         while True:
-            time.sleep(1)
+            time.sleep(30)  # Send heartbeat every 30 seconds instead of every 1 second
 
-            # Optionally send a heartbeat every second
+            # Send a heartbeat
             hb = AlarmEvent(EventType.HEARTBEAT)
             node.send(hb)
 
