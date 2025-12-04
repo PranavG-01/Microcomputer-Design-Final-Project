@@ -1,194 +1,163 @@
-from __future__ import annotations
-
+# alarm_host.py
 import socket
 import threading
 import time
-from typing import Callable, Dict, Tuple
-
-from zeroconf import ServiceInfo, Zeroconf
-
-from .protocol import AlarmEvent, EventType
-
+from zeroconf import Zeroconf, ServiceInfo
+from common.comms.protocol import AlarmEvent, EventType
 
 class AlarmHost:
-	"""Host side of the alarm mesh.
+    SERVICE_TYPE = "_alarmhost._tcp.local."
+    SERVICE_NAME = "AlarmHostService._alarmhost._tcp.local."
+    HEARTBEAT_TIMEOUT = 60  # Remove node if no heartbeat for 60 seconds
 
-	- Publishes an mDNS service so nodes can discover the host.
-	- Accepts TCP connections from nodes.
-	- Receives `AlarmEvent` messages from nodes and calls `on_event`.
-	- Can broadcast `AlarmEvent` messages to all connected nodes.
-	- Monitors heartbeats and disconnects clients after `heartbeat_timeout` seconds
-	  of inactivity.
-	"""
+    def __init__(self, port=5001, event_handler=None):
+        self.port = port
+        self.zeroconf = Zeroconf()
+        self.service_info = None
+        self.clients = {}      # {addr: {"conn": conn, "last_heartbeat": timestamp}}
+        self.running = False
+        self.lock = threading.Lock()
+        self.event_handler = event_handler  # Callback for handling received events
 
-	def __init__(
-		self,
-		name: str,
-		host: str = "0.0.0.0",
-		port: int = 0,
-		service_type: str = "_alarmmesh._tcp.local.",
-		heartbeat_interval: float = 5.0,
-		heartbeat_timeout: float = 15.0,
-	) -> None:
-		self.name = name
-		self.host = host
-		self.port = port
-		self.service_type = service_type
-		self.heartbeat_interval = heartbeat_interval
-		self.heartbeat_timeout = heartbeat_timeout
+    # ------------------------------
+    # Zeroconf Service Announce
+    # ------------------------------
+    def start_advertising(self):
+        ip = socket.gethostbyname(socket.gethostname())
 
-		self._zeroconf = Zeroconf()
-		self._service_info: ServiceInfo | None = None
+        self.service_info = ServiceInfo(
+            type_=self.SERVICE_TYPE,
+            name=self.SERVICE_NAME,
+            addresses=[socket.inet_aton(ip)],
+            port=self.port,
+            properties={"role": "host"}
+        )
 
-		self._server_sock: socket.socket | None = None
-		self._accept_thread: threading.Thread | None = None
-		self._hb_thread: threading.Thread | None = None
+        self.zeroconf.register_service(self.service_info)
+        print(f"[HOST] Advertised service at {ip}:{self.port}")
 
-		# clients: peer_addr_str -> (socket, last_seen, thread)
-		self._clients: Dict[str, Tuple[socket.socket, float, threading.Thread]] = {}
-		self._lock = threading.Lock()
-		self._running = False
+    # ------------------------------
+    # TCP Server
+    # ------------------------------
+    def start_tcp_server(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.bind(("", self.port))
+        self.sock.listen(5)
+        print(f"[HOST] TCP server listening on port {self.port}")
 
-		# user-provided callback: Callable[[AlarmEvent, str], None]
-		self.on_event: Callable[[AlarmEvent, str], None] | None = None
+        threading.Thread(target=self._accept_loop, daemon=True).start()
+        threading.Thread(target=self._heartbeat_monitor, daemon=True).start()
 
-	def start(self) -> None:
-		"""Start TCP server and publish mDNS service."""
-		self._server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		self._server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-		self._server_sock.bind((self.host, self.port))
-		self._server_sock.listen(5)
-		bound_host, bound_port = self._server_sock.getsockname()
-		self.port = bound_port
+    def _accept_loop(self):
+        while self.running:
+            try:
+                conn, addr = self.sock.accept()
+                print(f"[HOST] Node connected from {addr}")
+                with self.lock:
+                    self.clients[addr] = {
+                        "conn": conn,
+                        "last_heartbeat": time.time()
+                    }
 
-		# publish service
-		addr = socket.inet_aton(socket.gethostbyname(socket.gethostname()))
-		name = f"{self.name}.{self.service_type}"
-		info = ServiceInfo(
-			self.service_type,
-			name,
-			addresses=[addr],
-			port=self.port,
-			properties={},
-			server=socket.gethostname() + ".",
-		)
-		self._service_info = info
-		self._zeroconf.register_service(info)
+                threading.Thread(
+                    target=self._client_recv_loop, 
+                    args=(conn, addr),
+                    daemon=True
+                ).start()
+            except:
+                pass
 
-		self._running = True
-		self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
-		self._accept_thread.start()
+    def _client_recv_loop(self, conn, addr):
+        buffer = ""
+        while self.running:
+            try:
+                data = conn.recv(4096).decode()
+                if not data:
+                    break
+                buffer += data
 
-		self._hb_thread = threading.Thread(target=self._heartbeat_monitor, daemon=True)
-		self._hb_thread.start()
+                # Messages separated by newline
+                while "\n" in buffer:
+                    packet, buffer = buffer.split("\n", 1)
+                    event = AlarmEvent.from_json(packet)
+                    print(f"[HOST] Received from {addr}: {event.type.name}")
+                    
+                    # Update heartbeat timestamp if it's a heartbeat
+                    if event.type == EventType.HEARTBEAT:
+                        with self.lock:
+                            if addr in self.clients:
+                                self.clients[addr]["last_heartbeat"] = time.time()
+                    
+                    # Delegate to event handler if provided
+                    if self.event_handler:
+                        self.event_handler(event, addr)
+            except:
+                break
 
-	def stop(self) -> None:
-		"""Stop accepting new connections and unregister mDNS service."""
-		self._running = False
-		if self._server_sock:
-			try:
-				self._server_sock.close()
-			except Exception:
-				pass
+        print(f"[HOST] Node disconnected {addr}")
+        conn.close()
+        with self.lock:
+            if addr in self.clients:
+                del self.clients[addr]
 
-		if self._service_info:
-			try:
-				self._zeroconf.unregister_service(self._service_info)
-			except Exception:
-				pass
-		try:
-			self._zeroconf.close()
-		except Exception:
-			pass
+    def _heartbeat_monitor(self):
+        """Monitor heartbeats and remove nodes that have timed out"""
+        while self.running:
+            time.sleep(10)  # Check every 10 seconds
+            current_time = time.time()
+            
+            with self.lock:
+                dead_nodes = [
+                    addr for addr, info in self.clients.items()
+                    if current_time - info["last_heartbeat"] > self.HEARTBEAT_TIMEOUT
+                ]
+                
+                for addr in dead_nodes:
+                    print(f"[HOST] Node {addr} timed out (no heartbeat). Removing...")
+                    try:
+                        self.clients[addr]["conn"].close()
+                    except:
+                        pass
+                    del self.clients[addr]
 
-		# close clients
-		with self._lock:
-			for peer, (sock, _, thr) in list(self._clients.items()):
-				try:
-					sock.close()
-				except Exception:
-					pass
-			self._clients.clear()
+    # ------------------------------
+    # Sending events
+    # ------------------------------
+    def broadcast(self, event: AlarmEvent):
+        msg = event.to_json() + "\n"
+        print(f"[HOST] Broadcasting: {event.type.name}")
+        with self.lock:
+            for addr, info in self.clients.items():
+                try:
+                    info["conn"].sendall(msg.encode())
+                except:
+                    pass
 
-	def broadcast(self, event: AlarmEvent) -> None:
-		"""Send an event to all connected nodes."""
-		payload = event.to_json() + "\n"
-		data = payload.encode()
-		with self._lock:
-			for peer, (sock, _, _) in list(self._clients.items()):
-				try:
-					sock.sendall(data)
-				except Exception:
-					# on send failure, remove client
-					self._remove_client(peer)
+    def get_connected_nodes_count(self) -> int:
+        """Get the number of currently connected nodes"""
+        with self.lock:
+            return len(self.clients)
 
-	def _accept_loop(self) -> None:
-		while self._running and self._server_sock:
-			try:
-				conn, addr = self._server_sock.accept()
-			except Exception:
-				break
-			peer = f"{addr[0]}:{addr[1]}"
-			thr = threading.Thread(target=self._handle_client, args=(conn, peer), daemon=True)
-			with self._lock:
-				self._clients[peer] = (conn, time.time(), thr)
-			thr.start()
+    # ------------------------------
+    # Control
+    # ------------------------------
+    def start(self):
+        self.running = True
+        self.start_advertising()
+        self.start_tcp_server()
 
-	def _handle_client(self, conn: socket.socket, peer: str) -> None:
-		try:
-			f = conn.makefile("r")
-			while self._running:
-				line = f.readline()
-				if not line:
-					break
-				line = line.strip()
-				if not line:
-					continue
-				try:
-					evt = AlarmEvent.from_json(line)
-				except Exception:
-					continue
-				# update last seen
-				with self._lock:
-					if peer in self._clients:
-						sock, _, thr = self._clients[peer]
-						self._clients[peer] = (sock, time.time(), thr)
-
-				# if heartbeat, respond with heartbeat (acts as a heartbeat ACK)
-				if evt.type == EventType.HEARTBEAT:
-					try:
-						conn.sendall((AlarmEvent(type=EventType.HEARTBEAT).to_json() + "\n").encode())
-					except Exception:
-						pass
-
-				# user callback
-				if self.on_event:
-					try:
-						self.on_event(evt, peer)
-					except Exception:
-						pass
-		finally:
-			self._remove_client(peer)
-
-	def _remove_client(self, peer: str) -> None:
-		with self._lock:
-			tup = self._clients.pop(peer, None)
-		if tup:
-			sock, _, _ = tup
-			try:
-				sock.close()
-			except Exception:
-				pass
-
-	def _heartbeat_monitor(self) -> None:
-		while self._running:
-			now = time.time()
-			to_remove = []
-			with self._lock:
-				for peer, (sock, last_seen, thr) in list(self._clients.items()):
-					if now - last_seen > self.heartbeat_timeout:
-						to_remove.append(peer)
-			for peer in to_remove:
-				self._remove_client(peer)
-			time.sleep(max(0.5, self.heartbeat_interval))
-
+    def stop(self):
+        print("[HOST] Stopping host...")
+        self.running = False
+        self.zeroconf.unregister_service(self.service_info)
+        self.zeroconf.close()
+        with self.lock:
+            for addr, info in self.clients.items():
+                try:
+                    info["conn"].close()
+                except:
+                    pass
+        try:
+            self.sock.close()
+        except:
+            pass
