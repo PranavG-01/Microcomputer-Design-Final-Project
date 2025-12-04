@@ -5,16 +5,9 @@ import time
 
 class LCD:
     def __init__(self):
-        # Ensure GPIO is in BCM mode and pins are configured as outputs
+        # Ensure GPIO uses BCM numbering and suppress warnings
+        GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
-        pins = [24, 23, 17, 18, 27, 22]
-        for p in pins:
-            try:
-                GPIO.setup(p, GPIO.OUT)
-            except RuntimeError:
-                # If pins are already set up or restricted, ignore
-                pass
-
         self.lcd = CharLCD(
             pin_rs=24, pin_e=23, pins_data=[17, 18, 27, 22],
             numbering_mode=GPIO.BCM, cols=16, rows=2, dotsize=8
