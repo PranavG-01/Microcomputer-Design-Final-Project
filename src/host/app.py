@@ -147,7 +147,7 @@ def main():
     # Start Flask web server in a background thread so the form works
     try:
         flask_thread = threading.Thread(
-            target=lambda: app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False),
+            target=lambda: app.run(host="0.0.0.0", port=6000, debug=False, use_reloader=False),
             daemon=True,
         )
         flask_thread.start()
