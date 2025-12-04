@@ -23,7 +23,28 @@ class AlarmHost:
     # Zeroconf Service Announce
     # ------------------------------
     def start_advertising(self):
-        ip = socket.gethostbyname(socket.gethostname())
+        # Try to find a non-loopback LAN IP. socket.gethostbyname(hostname)
+        # often returns 127.0.1.1 on some systems, which makes the advertised
+        # address unreachable for other devices. Use a UDP trick to discover
+        # the primary outbound IP and fall back gracefully.
+        ip = None
+        s = None
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # This doesn't need to be reachable; no packets are sent.
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+        except Exception:
+            try:
+                ip = socket.gethostbyname(socket.gethostname())
+            except Exception:
+                ip = "127.0.0.1"
+        finally:
+            try:
+                if s:
+                    s.close()
+            except:
+                pass
 
         self.service_info = ServiceInfo(
             type_=self.SERVICE_TYPE,
