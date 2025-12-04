@@ -20,7 +20,7 @@ def main():
 
     try:
         while True:
-            time.sleep(30)  # Send heartbeat every 30 seconds instead of every 1 second
+            time.sleep(10)  # Send heartbeat every 30 seconds instead of every 1 second
 
             # Send a heartbeat
             hb = AlarmEvent(EventType.HEARTBEAT)

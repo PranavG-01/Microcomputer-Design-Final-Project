@@ -3,26 +3,21 @@ import socket
 import threading
 import time
 from zeroconf import Zeroconf, ServiceInfo
-from common.comms.protocol import AlarmEvent, EventType, Alarm
-
+from common.comms.protocol import AlarmEvent, EventType
 
 class AlarmHost:
     SERVICE_TYPE = "_alarmhost._tcp.local."
     SERVICE_NAME = "AlarmHostService._alarmhost._tcp.local."
     HEARTBEAT_TIMEOUT = 60  # Remove node if no heartbeat for 60 seconds
 
-    def __init__(self, port=5001):
+    def __init__(self, port=5001, event_handler=None):
         self.port = port
         self.zeroconf = Zeroconf()
         self.service_info = None
         self.clients = {}      # {addr: {"conn": conn, "last_heartbeat": timestamp}}
         self.running = False
         self.lock = threading.Lock()
-        
-        # Alarm state management
-        self.current_alarm = None  # Single Alarm object scheduled
-        self.alarm_active = False  # Is an alarm currently triggered?
-        self.snooze_responses = set()  # Addresses that have sent snooze
+        self.event_handler = event_handler  # Callback for handling received events
 
     # ------------------------------
     # Zeroconf Service Announce
@@ -46,7 +41,7 @@ class AlarmHost:
     # ------------------------------
     def start_tcp_server(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.bind(("0.0.0.0", self.port))
+        self.sock.bind(("", self.port))
         self.sock.listen(5)
         print(f"[HOST] TCP server listening on port {self.port}")
 
@@ -93,8 +88,9 @@ class AlarmHost:
                             if addr in self.clients:
                                 self.clients[addr]["last_heartbeat"] = time.time()
                     
-                    # Handle other event types (alarms, etc.)
-                    self._handle_event(event, addr)
+                    # Delegate to event handler if provided
+                    if self.event_handler:
+                        self.event_handler(event, addr)
             except:
                 break
 
@@ -124,54 +120,6 @@ class AlarmHost:
                         pass
                     del self.clients[addr]
 
-    def _handle_event(self, event: AlarmEvent, addr):
-        """Handle received events"""
-        if event.type == EventType.SNOOZE_PRESSED:
-            print(f"[HOST] Snooze pressed by {addr}")
-            with self.lock:
-                self.snooze_responses.add(addr)
-                # Check if all nodes have sent snooze
-                if len(self.snooze_responses) == len(self.clients):
-                    print(f"[HOST] All nodes have snoozed. Alarm cleared.")
-                    self._clear_alarm()
-
-    # ------------------------------
-    # Alarm Management
-    # ------------------------------
-    def set_alarm(self, alarm: Alarm):
-        """Set the alarm to be scheduled"""
-        with self.lock:
-            self.current_alarm = alarm
-        print(f"[HOST] Alarm scheduled for {alarm}")
-
-    def trigger_alarm(self, alarm: Alarm):
-        """Trigger an alarm and broadcast to all nodes"""
-        with self.lock:
-            if self.alarm_active:
-                print("[HOST] An alarm is already active, ignoring new trigger")
-                return
-            
-            self.alarm_active = True
-            self.snooze_responses.clear()
-        
-        print(f"[HOST] ALARM TRIGGERED for {alarm.hours}:{alarm.minutes:02d}")
-        event = AlarmEvent(
-            EventType.ALARM_TRIGGERED,
-            {"alarm": alarm.to_dict()},
-            expires_at=alarm.get_next_trigger_time()
-        )
-        self.broadcast(event)
-
-    def _clear_alarm(self):
-        """Clear the active alarm"""
-        with self.lock:
-            self.alarm_active = False
-            self.snooze_responses.clear()
-        
-        print("[HOST] Alarm cleared, resetting for next scheduled alarm")
-        event = AlarmEvent(EventType.ALARM_CLEARED, {"reason": "all nodes snoozed"})
-        self.broadcast(event)
-
     # ------------------------------
     # Sending events
     # ------------------------------
@@ -184,6 +132,11 @@ class AlarmHost:
                     info["conn"].sendall(msg.encode())
                 except:
                     pass
+
+    def get_connected_nodes_count(self) -> int:
+        """Get the number of currently connected nodes"""
+        with self.lock:
+            return len(self.clients)
 
     # ------------------------------
     # Control
