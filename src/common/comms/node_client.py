@@ -1,87 +1,31 @@
-# alarm_node.py
-import socket
-import threading
-from zeroconf import Zeroconf, ServiceBrowser, ServiceStateChange
-from .protocol import AlarmEvent
-
+from zeroconf import ServiceBrowser, ServiceStateChange
 
 class AlarmNode:
-    SERVICE_TYPE = "_alarmhost._tcp.local."
-
     def __init__(self):
         self.zeroconf = Zeroconf()
-        self.host_info = None
-        self.sock = None
-        self.connected = False
-
-    # ------------------------------
-    # Zeroconf Discovery
-    # ------------------------------
-    def start_discovery(self):
-        print("[NODE] Searching for host...")
-        ServiceBrowser(
+        self.browser = ServiceBrowser(
             self.zeroconf,
-            self.SERVICE_TYPE,
+            "_alarmhost._tcp.local.",
             handlers=[self._on_service_state_change]
         )
+        print("[NODE] Searching for host...")
 
     def _on_service_state_change(self, zeroconf, service_type, name, state_change):
-        if state_change.is_added():
+        print(f"[DEBUG] Zeroconf change: {name} -> {state_change}")
+
+        # Host appeared
+        if state_change == ServiceStateChange.Added:
             info = zeroconf.get_service_info(service_type, name)
             if info:
-                ip = ".".join(map(str, info.addresses[0]))
-                print(f"[NODE] Host found at {ip}:{info.port}")
-                self.connect_to_host(ip, info.port)
+                self.host_ip = self._decode_ip(info)
+                self.host_port = info.port
+                print(f"[NODE] Found host at {self.host_ip}:{self.host_port}")
 
+        # Host disappeared
+        elif state_change == ServiceStateChange.Removed:
+            print("[NODE] Host disappeared.")
+            self.host_ip = None
+            self.host_port = None
 
-    # ------------------------------
-    # TCP Client Connection
-    # ------------------------------
-    def connect_to_host(self, ip, port):
-        if self.connected:
-            return
-
-        print("[NODE] Connecting to host...")
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((ip, port))
-        self.connected = True
-
-        threading.Thread(target=self._recv_loop, daemon=True).start()
-
-    def _recv_loop(self):
-        buffer = ""
-        while self.connected:
-            try:
-                data = self.sock.recv(4096).decode()
-                if not data:
-                    break
-                buffer += data
-
-                while "\n" in buffer:
-                    packet, buffer = buffer.split("\n", 1)
-                    event = AlarmEvent.from_json(packet)
-                    print(f"[NODE] Received: {event}")
-            except:
-                break
-
-        print("[NODE] Disconnected from host")
-        self.connected = False
-
-    # ------------------------------
-    # Sending events
-    # ------------------------------
-    def send(self, event: AlarmEvent):
-        if self.connected:
-            msg = event.to_json() + "\n"
-            print(f"[NODE] Sending: {event}")
-            self.sock.sendall(msg.encode())
-
-    # ------------------------------
-    # Shutdown
-    # ------------------------------
-    def stop(self):
-        print("[NODE] Stopping node...")
-        self.connected = False
-        if self.sock:
-            self.sock.close()
-        self.zeroconf.close()
+    def _decode_ip(self, info):
+        return ".".join(str(b) for b in info.addresses[0])
