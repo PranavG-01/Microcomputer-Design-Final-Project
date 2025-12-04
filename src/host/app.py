@@ -30,14 +30,13 @@ def update_display():
     while host and host.running:
         try:
             current_time = datetime.datetime.now()
-            time_str = current_time.strftime("%H:%M")
             alarm = alarm_manager.get_current_alarm()
-            has_alarm = alarm is not None
             
             if lcd:
-                lcd.lcd_write(time_str, has_alarm)
+                lcd.lcd_write(current_time, alarm)
             
-            print(f"[HOST] Display updated: {time_str}, Alarm: {'On' if has_alarm else 'Off'}")
+            alarm_str = f"{alarm}" if alarm else "No Alarm"
+            print(f"[HOST] Display updated: {current_time.strftime('%I:%M %p')}, {alarm_str}")
             
             # Update every minute (60 seconds)
             time.sleep(60)
