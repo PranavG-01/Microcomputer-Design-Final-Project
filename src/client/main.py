@@ -100,7 +100,7 @@ def main():
 
     # Initialize LED
     try:
-        led = LedController(pin=24)
+        led = LedController(pin=5)
         print("[NODE APP] LED initialized")
     except Exception as e:
         print(f"[NODE APP] Failed to initialize LED: {e}")
