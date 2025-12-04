@@ -25,17 +25,3 @@ class LCD:
         self.lcd.clear()
         self.lcd.close()
         GPIO.cleanup()
-
-# Test Main
-'''
-if __name__ == "__main__":
-    screen = LCD()
-    try:
-        screen.lcd_clearScreen()
-        screen.lcd_write("12:34", True)
-        time.sleep(3)
-        screen.lcd_write("09:10", False)
-        time.sleep(3)
-    finally:
-        screen.close()
-'''

@@ -2,6 +2,8 @@ from flask import Flask, send_from_directory
 from common.comms.host_server import AlarmHost
 from host.alarm_manager import AlarmManager
 from common.comms.protocol import Alarm, AlarmEvent, EventType
+from common.io.lcd import LCD
+from common.io.buzzer import BuzzerController
 import time
 import threading
 import datetime
@@ -9,6 +11,8 @@ import datetime
 app = Flask(__name__)
 host = None
 alarm_manager = None
+lcd = None
+buzzer = None
 
 @app.route("/")
 def home():
@@ -19,6 +23,27 @@ def handle_event(event: AlarmEvent, addr):
     """Handle received events from nodes"""
     if event.type == EventType.SNOOZE_PRESSED:
         alarm_manager.handle_snooze(addr, host.get_connected_nodes_count())
+
+
+def update_display():
+    """Update LCD display every minute with current time and alarm status"""
+    while host and host.running:
+        try:
+            current_time = datetime.datetime.now()
+            time_str = current_time.strftime("%H:%M")
+            alarm = alarm_manager.get_current_alarm()
+            has_alarm = alarm is not None
+            
+            if lcd:
+                lcd.lcd_write(time_str, has_alarm)
+            
+            print(f"[HOST] Display updated: {time_str}, Alarm: {'On' if has_alarm else 'Off'}")
+            
+            # Update every minute (60 seconds)
+            time.sleep(60)
+        except Exception as e:
+            print(f"[HOST] Error updating display: {e}")
+            time.sleep(60)
 
 
 def alarm_scheduler():
@@ -48,15 +73,29 @@ def alarm_scheduler():
 
 
 def main():
-    global host, alarm_manager
+    global host, alarm_manager, lcd, buzzer
     host = AlarmHost(port=5001, event_handler=handle_event)
     alarm_manager = AlarmManager(event_callback=host.broadcast)
+    
+    # Initialize LCD and Buzzer
+    try:
+        lcd = LCD()
+        print("[HOST APP] LCD initialized")
+    except Exception as e:
+        print(f"[HOST APP] Failed to initialize LCD: {e}")
+    
+    try:
+        buzzer = BuzzerController(buzzer_pin=4)  # Adjust pin as needed
+        print("[HOST APP] Buzzer initialized")
+    except Exception as e:
+        print(f"[HOST APP] Failed to initialize Buzzer: {e}")
+    
     host.start()
 
     print("[HOST APP] Host is running.")
     time.sleep(2)
 
-    # Set the alarm for 2:10 PM
+    # Set the alarm for 2:25 PM
     alarm = Alarm(hours=2, minutes=25, is_pm=True)
     alarm_manager.set_alarm(alarm)
 
@@ -64,12 +103,20 @@ def main():
     scheduler_thread = threading.Thread(target=alarm_scheduler, daemon=True)
     scheduler_thread.start()
 
+    # Start the display update thread
+    display_thread = threading.Thread(target=update_display, daemon=True)
+    display_thread.start()
+
     # Keep alive forever
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("[HOST APP] Stopping")
+        if lcd:
+            lcd.close()
+        if buzzer:
+            buzzer.turn_off()
         host.stop()
 
 if __name__ == "__main__":
