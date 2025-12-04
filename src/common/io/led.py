@@ -6,6 +6,7 @@ class LedController:
     """Simple LED controller with steady on/off and blink support."""
 
     def __init__(self, pin):
+        GPIO.setmode(GPIO.BCM)
         GPIO.setup(pin, GPIO.OUT)
         self.pin = pin
         self._blinking = False
