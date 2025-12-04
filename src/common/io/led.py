@@ -2,42 +2,68 @@ import RPi.GPIO as GPIO
 import threading
 import time
 
+# Global flag to ensure GPIO.setmode is called only once
+_GPIO_MODE_SET = False
+
+def _ensure_gpio_mode():
+    global _GPIO_MODE_SET
+    if not _GPIO_MODE_SET:
+        try:
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setwarnings(False)  # Suppress duplicate pin warnings
+            _GPIO_MODE_SET = True
+        except Exception:
+            pass
+
 class LedController:
-    """Simple LED controller with steady on/off and blink support."""
+    """Simple LED controller with steady on/off and blink support using RPi.GPIO."""
 
     def __init__(self, pin):
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(pin, GPIO.OUT)
+        _ensure_gpio_mode()
+        try:
+            GPIO.setup(pin, GPIO.OUT)
+        except Exception:
+            pass  # Pin may already be set up
         self.pin = pin
         self._blinking = False
         self._blink_thread = None
 
     def on(self):
         self.stop_blink()
-        GPIO.output(self.pin, True)
-        print("led on")
+        try:
+            GPIO.output(self.pin, GPIO.HIGH)
+        except Exception:
+            pass
 
     def off(self):
         self.stop_blink()
-        GPIO.output(self.pin, False)
+        try:
+            GPIO.output(self.pin, GPIO.LOW)
+        except Exception:
+            pass
 
     def blink(self, on_time=0.5, off_time=0.5):
         """Start blinking in a background thread."""
-        # If already blinking, adjust times by restarting
         self.stop_blink()
         self._blinking = True
 
         def _blink_loop():
             while self._blinking:
-                self.led.on()
+                try:
+                    GPIO.output(self.pin, GPIO.HIGH)
+                except Exception:
+                    pass
                 time.sleep(on_time)
                 if not self._blinking:
                     break
-                self.led.off()
+                try:
+                    GPIO.output(self.pin, GPIO.LOW)
+                except Exception:
+                    pass
                 time.sleep(off_time)
-            # ensure LED off when stopping blink
+            # Ensure LED off when stopping blink
             try:
-                self.led.off()
+                GPIO.output(self.pin, GPIO.LOW)
             except Exception:
                 pass
 
@@ -47,7 +73,6 @@ class LedController:
     def stop_blink(self):
         if self._blinking:
             self._blinking = False
-            # thread will exit soon
             if self._blink_thread:
                 self._blink_thread.join(timeout=0.2)
                 self._blink_thread = None
@@ -55,7 +80,7 @@ class LedController:
     def close(self):
         self.stop_blink()
         try:
-            self.led.off()
+            GPIO.output(self.pin, GPIO.LOW)
         except Exception:
             pass
         try:
