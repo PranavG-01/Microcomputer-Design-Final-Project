@@ -15,6 +15,7 @@ class LedController:
     def on(self):
         self.stop_blink()
         GPIO.output(self.pin, True)
+        print("led on")
 
     def off(self):
         self.stop_blink()
