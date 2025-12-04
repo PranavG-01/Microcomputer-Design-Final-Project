@@ -59,6 +59,6 @@ class LedController:
         except Exception:
             pass
         try:
-            self.led.close()
+            GPIO.cleanup(self.pin)
         except Exception:
             pass

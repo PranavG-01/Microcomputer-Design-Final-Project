@@ -92,11 +92,11 @@ def main():
     node.send(hb)
 
     # Initialize button
-    try:
-        button = SnoozeButton(button_pin=4)
-        print("[NODE APP] Button initialized")
-    except Exception as e:
-        print(f"[NODE APP] Failed to initialize button: {e}")
+    # try:
+    #     button = SnoozeButton(button_pin=4)
+    #     print("[NODE APP] Button initialized")
+    # except Exception as e:
+    #     print(f"[NODE APP] Failed to initialize button: {e}")
 
     # Initialize LED
     try:
