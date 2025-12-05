@@ -205,16 +205,32 @@ def alarm_scheduler():
 
 
 def alarm_event_callback(event: AlarmEvent):
-    """Callback for alarm events - broadcasts and updates LCD if needed"""
+    """Callback for alarm events - broadcasts and updates hardware if needed"""
     host.broadcast(event)
     
-    # Update LCD when alarm is cleared
-    if event.type == EventType.ALARM_CLEARED:
+    if event.type == EventType.ALARM_TRIGGERED:
+        # Turn on the buzzer when alarm triggers
+        try:
+            if buzzer:
+                buzzer.turn_on()
+                print("[HOST APP] Buzzer activated")
+        except Exception as e:
+            print(f"[HOST APP] Failed to activate buzzer: {e}")
+    
+    elif event.type == EventType.ALARM_CLEARED:
+        # Turn off the buzzer and update LCD when alarm is cleared
+        try:
+            if buzzer:
+                buzzer.turn_off()
+                print("[HOST APP] Buzzer deactivated")
+        except Exception as e:
+            print(f"[HOST APP] Failed to deactivate buzzer: {e}")
+        
         try:
             if lcd:
                 display_now = TimeDisplay(current_time=datetime.now(), alarm=None)
                 lcd.write(display_now.get_time_line(), display_now.get_alarm_line())
-                print(f"[HOST APP] LCD updated - alarm cleared")
+                print("[HOST APP] LCD updated - alarm cleared")
         except Exception as e:
             print(f"[HOST APP] Failed to update LCD on alarm clear: {e}")
 
