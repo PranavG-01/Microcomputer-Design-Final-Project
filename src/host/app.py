@@ -93,6 +93,27 @@ def handle_event(event: AlarmEvent, addr):
         alarm_manager.handle_snooze(addr, host.get_connected_nodes_count())
 
 
+def on_node_connected(addr, conn):
+    """Called when a new node connects - send current alarm state"""
+    try:
+        alarm = alarm_manager.get_current_alarm()
+        if alarm:
+            # Send the current alarm to the newly connected node
+            event = AlarmEvent(EventType.ALARM_SET, {"alarm": alarm.to_dict()})
+            msg = event.to_json() + "\n"
+            conn.sendall(msg.encode())
+            print(f"[HOST APP] Sent current alarm to node {addr}")
+            
+            # If alarm is currently active, also send TRIGGERED event
+            if alarm_manager.is_alarm_active():
+                triggered_event = AlarmEvent(EventType.ALARM_TRIGGERED, {"alarm": alarm.to_dict()})
+                msg = triggered_event.to_json() + "\n"
+                conn.sendall(msg.encode())
+                print(f"[HOST APP] Sent alarm triggered to node {addr}")
+    except Exception as e:
+        print(f"[HOST APP] Failed to send alarm state to node {addr}: {e}")
+
+
 def button_monitor():
     """Monitor button presses while alarm is active"""
     while host and host.running:
@@ -161,7 +182,7 @@ def alarm_scheduler():
 
 def main():
     global host, alarm_manager, lcd, buzzer, button
-    host = AlarmHost(port=5001, event_handler=handle_event)
+    host = AlarmHost(port=5001, event_handler=handle_event, on_node_connected=on_node_connected)
     alarm_manager = AlarmManager(event_callback=host.broadcast)
     
     # Start Flask web server in a background thread so the form works
@@ -199,10 +220,6 @@ def main():
 
     print("[HOST APP] Host is running.")
     time.sleep(2)
-
-    # Set the alarm for 2:25 PM
-    # alarm = Alarm(hours=2, minutes=25, is_pm=True)
-    # alarm_manager.set_alarm(alarm)
 
     # Start the alarm scheduler thread
     scheduler_thread = threading.Thread(target=alarm_scheduler, daemon=True)

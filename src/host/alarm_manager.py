@@ -15,7 +15,7 @@ class AlarmManager:
         """
         self.current_alarm = None  # Single Alarm object scheduled
         self.alarm_active = False  # Is an alarm currently triggered?
-        self.snooze_responses = set()  # Addresses that have sent snooze
+        self.snooze_count = 0      # Number of devices that have snoozed
         self.lock = threading.Lock()
         self.event_callback = event_callback
 
@@ -23,73 +23,56 @@ class AlarmManager:
         """Set the alarm to be scheduled"""
         with self.lock:
             self.current_alarm = alarm
-        print(f"[ALARM] Alarm scheduled for {alarm}")
+            self.alarm_active = False
+            self.snooze_count = 0
+        print(f"[ALARM] Alarm set for {alarm}")
         # Broadcast alarm set to nodes so they can update indicators
-        try:
-            event = AlarmEvent(EventType.ALARM_SET, {"alarm": alarm.to_dict()})
-            self.event_callback(event)
-        except Exception as e:
-            print(f"[ALARM] Failed to broadcast ALARM_SET: {e}")
+        event = AlarmEvent(EventType.ALARM_SET, {"alarm": alarm.to_dict()})
+        self.event_callback(event)
 
     def remove_alarm(self):
         """Remove the currently scheduled alarm"""
         with self.lock:
             self.current_alarm = None
             self.alarm_active = False
-            self.snooze_responses.clear()
+            self.snooze_count = 0
         print("[ALARM] Alarm removed")
-        # Optionally broadcast a clear event when alarm is removed
-        try:
-            event = AlarmEvent(EventType.ALARM_CLEARED, {"reason": "alarm removed by user"})
-            self.event_callback(event)
-        except Exception as e:
-            print(f"[ALARM] Failed to broadcast ALARM_CLEARED: {e}")
+        event = AlarmEvent(EventType.ALARM_CLEARED, {})
+        self.event_callback(event)
 
     def trigger_alarm(self, alarm: Alarm):
         """Trigger an alarm and broadcast to all nodes"""
         with self.lock:
             if self.alarm_active:
-                print("[ALARM] An alarm is already active, ignoring new trigger")
+                print("[ALARM] Alarm already active, ignoring trigger")
                 return
-            
             self.alarm_active = True
-            self.snooze_responses.clear()
+            self.snooze_count = 0
         
         print(f"[ALARM] ALARM TRIGGERED for {alarm}")
-        event = AlarmEvent(
-            EventType.ALARM_TRIGGERED,
-            {"alarm": alarm.to_dict()},
-            expires_at=alarm.get_next_trigger_time()
-        )
+        event = AlarmEvent(EventType.ALARM_TRIGGERED, {"alarm": alarm.to_dict()})
         self.event_callback(event)
 
     def handle_snooze(self, addr, connected_nodes_count: int):
-        """Handle a snooze event from a node"""
-        print(f"[ALARM] Snooze pressed by {addr}")
+        """Handle snooze from a node"""
         with self.lock:
-            self.snooze_responses.add(addr)
-            # Check if all nodes + host have sent snooze (addr=None for host)
-            if len(self.snooze_responses) > connected_nodes_count:
-                print(f"[ALARM] All nodes and host have snoozed. Alarm cleared.")
-                self._clear_alarm()
+            self.snooze_count += 1
+            # Alarm cleared when all nodes + host have snoozed
+            # connected_nodes_count + 1 (host) = total devices
+            total_devices = connected_nodes_count + 1
+            if self.snooze_count >= total_devices:
+                print(f"[ALARM] All {total_devices} devices snoozed. Clearing alarm.")
+                self.alarm_active = False
+                self.snooze_count = 0
+                event = AlarmEvent(EventType.ALARM_CLEARED, {})
+                self.event_callback(event)
 
     def handle_host_snooze(self):
         """Handle snooze button press on the host"""
-        print(f"[ALARM] Host snooze button pressed")
         with self.lock:
             if not self.alarm_active:
-                print("[ALARM] Alarm not active, ignoring snooze")
                 return
-            self.snooze_responses.add("host")
-    
-    def _clear_alarm(self):
-        """Clear the active alarm (must be called with lock held)"""
-        self.alarm_active = False
-        self.snooze_responses.clear()
-        
-        print("[ALARM] Alarm cleared, resetting for next scheduled alarm")
-        event = AlarmEvent(EventType.ALARM_CLEARED, {"reason": "all nodes snoozed"})
-        self.event_callback(event)
+            self.snooze_count += 1
 
     def is_alarm_active(self) -> bool:
         """Check if an alarm is currently active"""

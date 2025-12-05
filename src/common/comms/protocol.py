@@ -69,7 +69,6 @@ class AlarmEvent:
     type: EventType
     data: dict[str, Any] = None
     timestamp: float | None = None
-    expires_at: float | None = None
 
     def __post_init__(self):
         if self.timestamp is None:

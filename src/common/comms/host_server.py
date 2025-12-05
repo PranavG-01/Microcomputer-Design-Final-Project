@@ -10,7 +10,7 @@ class AlarmHost:
     SERVICE_NAME = "AlarmHostService._alarmhost._tcp.local."
     HEARTBEAT_TIMEOUT = 60  # Remove node if no heartbeat for 60 seconds
 
-    def __init__(self, port=5001, event_handler=None):
+    def __init__(self, port=5001, event_handler=None, on_node_connected=None):
         self.port = port
         self.zeroconf = Zeroconf()
         self.service_info = None
@@ -18,6 +18,7 @@ class AlarmHost:
         self.running = False
         self.lock = threading.Lock()
         self.event_handler = event_handler  # Callback for handling received events
+        self.on_node_connected = on_node_connected  # Callback when a node connects
 
     # ------------------------------
     # Zeroconf Service Announce
@@ -79,6 +80,10 @@ class AlarmHost:
                         "conn": conn,
                         "last_heartbeat": time.time()
                     }
+                
+                # Notify that a node connected (so we can send current alarm state)
+                if self.on_node_connected:
+                    self.on_node_connected(addr, conn)
 
                 threading.Thread(
                     target=self._client_recv_loop, 
