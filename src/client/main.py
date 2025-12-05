@@ -31,6 +31,7 @@ def handle_events():
                     try:
                         if led:
                             led.on()
+                            print("[NODE] LED ON for alarm set")
                     except Exception:
                         pass
                 elif event.type == EventType.ALARM_TRIGGERED:
@@ -101,7 +102,6 @@ def main():
     # Initialize LED
     try:
         led = LedController(pin=24)
-        led.on()
         print("[NODE APP] LED initialized")
     except Exception as e:
         print(f"[NODE APP] Failed to initialize LED: {e}")
