@@ -175,6 +175,8 @@ def alarm_scheduler():
         
         current_time = datetime.now()
         hour_24, minute = alarm.get_24hr_time()
+        
+        # Create alarm time for today
         alarm_time = current_time.replace(
             hour=hour_24,
             minute=minute,
@@ -182,9 +184,10 @@ def alarm_scheduler():
             microsecond=0
         )
         
-        # If alarm time has passed today, schedule for tomorrow
+        # If alarm time has passed today, schedule for tomorrow using timedelta
         if alarm_time <= current_time:
-            alarm_time = alarm_time.replace(day=alarm_time.day + 1)
+            from datetime import timedelta
+            alarm_time = alarm_time + timedelta(days=1)
         
         time_until_alarm = (alarm_time - current_time).total_seconds()
         time_diff = (current_time - alarm_time).total_seconds()
