@@ -53,27 +53,25 @@ class AlarmManager:
         event = AlarmEvent(EventType.ALARM_TRIGGERED, {"alarm": alarm.to_dict()})
         self.event_callback(event)
 
-    def handle_snooze(self, addr, connected_nodes_count: int):
-        """Handle snooze from a node"""
-        with self.lock:
-            self.snooze_count += 1
-            # Alarm cleared when all nodes + host have snoozed
-            # connected_nodes_count + 1 (host) = total devices
-            total_devices = connected_nodes_count + 1
-            if self.snooze_count >= total_devices:
-                print(f"[ALARM] All {total_devices} devices snoozed. Clearing alarm.")
-                self.alarm_active = False
-                self.current_alarm = None  # Delete the alarm after clearing
-                self.snooze_count = 0
-                event = AlarmEvent(EventType.ALARM_CLEARED, {})
-                self.event_callback(event)
-
-    def handle_host_snooze(self):
-        """Handle snooze button press on the host"""
+    def handle_snooze(self, connected_nodes_count: int, source="node"):
+        """Handle snooze from either node or host"""
         with self.lock:
             if not self.alarm_active:
                 return
+
             self.snooze_count += 1
+            total_devices = connected_nodes_count + 1  # host + nodes
+
+            print(f"[ALARM] Snooze from {source}. "
+                f"{self.snooze_count}/{total_devices} devices snoozed.")
+
+            if self.snooze_count >= total_devices:
+                print(f"[ALARM] All {total_devices} devices snoozed. Clearing alarm.")
+                self.alarm_active = False
+                self.current_alarm = None
+                self.snooze_count = 0
+                event = AlarmEvent(EventType.ALARM_CLEARED, {})
+                self.event_callback(event)
 
     def is_alarm_active(self) -> bool:
         """Check if an alarm is currently active"""

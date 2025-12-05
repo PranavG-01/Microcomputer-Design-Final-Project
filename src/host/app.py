@@ -88,9 +88,12 @@ def remove_alarm():
 
 
 def handle_event(event: AlarmEvent, addr):
-    """Handle received events from nodes"""
     if event.type == EventType.SNOOZE_PRESSED:
-        alarm_manager.handle_snooze(addr, host.get_connected_nodes_count())
+        alarm_manager.handle_snooze(
+            connected_nodes_count=host.get_connected_nodes_count(),
+            source=str(addr)
+        )
+
 
 
 def on_node_connected(addr, conn):
@@ -127,9 +130,10 @@ def button_monitor():
         try:
             if alarm_manager.is_alarm_active() and button:
                 if button.is_pressed():
-                    print("[HOST] Snooze button pressed")
-                    alarm_manager.handle_host_snooze()
-                    # Debounce: wait for release
+                    alarm_manager.handle_snooze(
+                        connected_nodes_count=host.get_connected_nodes_count(),
+                        source="host"
+                    )
                     time.sleep(0.5)
             time.sleep(0.05)  # Poll every 50ms
         except Exception as e:
@@ -258,11 +262,11 @@ def main():
     except Exception as e:
         print(f"[HOST APP] Failed to initialize LCD: {e}")
     
-    try:
-        buzzer = BuzzerController(buzzer_pin=4)  # Adjust pin as needed
-        print("[HOST APP] Buzzer initialized")
-    except Exception as e:
-        print(f"[HOST APP] Failed to initialize Buzzer: {e}")
+    # try:
+    #     buzzer = BuzzerController(buzzer_pin=4)  # Adjust pin as needed
+    #     print("[HOST APP] Buzzer initialized")
+    # except Exception as e:
+    #     print(f"[HOST APP] Failed to initialize Buzzer: {e}")
     
     # Initialize button
     try:
