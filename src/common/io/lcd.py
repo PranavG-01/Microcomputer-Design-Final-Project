@@ -21,6 +21,8 @@ class LCD:
         """
         line1 = str(line1)[:16].ljust(16)
         line2 = str(line2)[:16].ljust(16)
+
+        self.lcd.clear()
         
         self.lcd.cursor_pos = (0, 0)
         self.lcd.write_string(line1)
