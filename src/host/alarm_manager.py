@@ -63,6 +63,7 @@ class AlarmManager:
             if self.snooze_count >= total_devices:
                 print(f"[ALARM] All {total_devices} devices snoozed. Clearing alarm.")
                 self.alarm_active = False
+                self.current_alarm = None  # Delete the alarm after clearing
                 self.snooze_count = 0
                 event = AlarmEvent(EventType.ALARM_CLEARED, {})
                 self.event_callback(event)

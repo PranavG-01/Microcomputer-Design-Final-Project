@@ -192,9 +192,10 @@ def alarm_scheduler():
         time_until_alarm = (alarm_time - current_time).total_seconds()
         time_diff = (current_time - alarm_time).total_seconds()
         
-        # Log countdown every minute or when close
-        if last_logged_time is None or (current_time - last_logged_time).total_seconds() >= 60 or time_until_alarm < 60:
-            print(f"[HOST SCHEDULER] Alarm set for {alarm} ({alarm_time.strftime('%H:%M:%S')}). Time until: {int(time_until_alarm)}s")
+        # Log countdown only when first set or when within 60 seconds
+        if last_logged_time is None or time_until_alarm < 60:
+            if last_logged_time is None:
+                print(f"[HOST SCHEDULER] Alarm set for {alarm} ({alarm_time.strftime('%H:%M:%S')}). Time until: {int(time_until_alarm)}s")
             last_logged_time = current_time
         
         # Check if we're within 1 second of the alarm time
@@ -203,10 +204,25 @@ def alarm_scheduler():
             alarm_manager.trigger_alarm(alarm)
 
 
+def alarm_event_callback(event: AlarmEvent):
+    """Callback for alarm events - broadcasts and updates LCD if needed"""
+    host.broadcast(event)
+    
+    # Update LCD when alarm is cleared
+    if event.type == EventType.ALARM_CLEARED:
+        try:
+            if lcd:
+                display_now = TimeDisplay(current_time=datetime.now(), alarm=None)
+                lcd.write(display_now.get_time_line(), display_now.get_alarm_line())
+                print(f"[HOST APP] LCD updated - alarm cleared")
+        except Exception as e:
+            print(f"[HOST APP] Failed to update LCD on alarm clear: {e}")
+
+
 def main():
     global host, alarm_manager, lcd, buzzer, button
     host = AlarmHost(port=5001, event_handler=handle_event, on_node_connected=on_node_connected)
-    alarm_manager = AlarmManager(event_callback=host.broadcast)
+    alarm_manager = AlarmManager(event_callback=alarm_event_callback)
     
     # Start Flask web server in a background thread so the form works
     try:
